@@ -1415,10 +1415,9 @@ class PyVmomiHelper(PyVmomi):
         boot_firmware = self.params['hardware']['boot_firmware']
         if boot_firmware is not None:
             # boot firmware re-config can cause boot issue
-            if vm_obj is not None:
-                return
-            self.configspec.firmware = boot_firmware
-            self.change_detected = True
+            if vm_obj is None or boot_firmware != vm_obj.config.firmware:
+                self.change_detected = True
+                self.configspec.firmware = boot_firmware
 
     def sanitize_cdrom_params(self):
         cdrom_specs = []
