@@ -113,7 +113,7 @@ class VmBootInfoManager(PyVmomi):
 
         if self.uuid:
             if self.use_instance_uuid:
-                vm_obj = find_vm_by_id(self.content, vm_id=self.uuid, vm_id_type="use_instance_uuid")
+                vm_obj = find_vm_by_id(self.content, vm_id=self.uuid, vm_id_type="instance_uuid")
             else:
                 vm_obj = find_vm_by_id(self.content, vm_id=self.uuid, vm_id_type="uuid")
             if vm_obj is None:
