@@ -154,6 +154,56 @@ class PyVmomiDeviceHelper(object):
         return disk_controller, disk_list
 
     @staticmethod
+    def create_sio_controller():
+        sio_ctl = vim.vm.device.VirtualDeviceSpec()
+        sio_ctl.operation = vim.vm.device.VirtualDeviceSpec.Operation.add
+        sio_ctl.device = vim.vm.device.VirtualSIOController()
+        sio_ctl.device.deviceInfo = vim.Description()
+        sio_ctl.device.busNumber = 0
+
+        return sio_ctl
+
+    @staticmethod
+    def create_floppy(sio_ctl, floppy_type, flp_path=None):
+        if isinstance(sio_ctl, vim.vm.device.VirtualDeviceSpec):
+            sio_ctl = sio_ctl.device
+
+        floppy_spec = vim.vm.device.VirtualDeviceSpec()
+        floppy_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.add
+        floppy_spec.device = vim.vm.device.VirtualFloppy()
+        floppy_spec.device.controllerKey = sio_ctl.key
+        floppy_spec.device.key = -1
+        floppy_spec.device.connectable = vim.vm.device.VirtualDevice.ConnectInfo()
+        floppy_spec.device.connectable.allowGuestControl = True
+        floppy_spec.device.connectable.startConnected = (floppy_type != "none")
+
+        if floppy_type in ["none", "client"]:
+            floppy_spec.device.backing = vim.vm.device.VirtualFloppy.RemoteDeviceBackingInfo()
+        elif floppy_type == "flp":
+            floppy_spec.device.backing = vim.vm.device.VirtualFloppy.ImageBackingInfo(fileName=flp_path)
+
+        return floppy_spec
+
+    @staticmethod
+    def is_equal_floppy(vm_obj, floppy_device, floppy_type, flp_path):
+        if floppy_type == "none":
+            return (isinstance(floppy_device.backing, vim.vm.device.VirtualFloppy.RemoteDeviceBackingInfo) and
+                    floppy_device.connectable.allowGuestControl and
+                    not floppy_device.connectable.startConnected and
+                    (vm_obj.runtime.powerState != vim.VirtualMachinePowerState.poweredOn or not floppy_device.connectable.connected))
+        elif floppy_type == "client":
+            return (isinstance(floppy_device.backing, vim.vm.device.VirtualFloppy.RemoteDeviceBackingInfo) and
+                    floppy_device.connectable.allowGuestControl and
+                    floppy_device.connectable.startConnected and
+                    (vm_obj.runtime.powerState != vim.VirtualMachinePowerState.poweredOn or floppy_device.connectable.connected))
+        elif floppy_type == "flp":
+            return (isinstance(floppy_device.backing, vim.vm.device.VirtualFloppy.ImageBackingInfo) and
+                    floppy_device.backing.fileName == flp_path and
+                    floppy_device.connectable.allowGuestControl and
+                    floppy_device.connectable.startConnected and
+                    (vm_obj.runtime.powerState != vim.VirtualMachinePowerState.poweredOn or floppy_device.connectable.connected))
+
+    @staticmethod
     def create_ide_controller(bus_number=0):
         ide_ctl = vim.vm.device.VirtualDeviceSpec()
         ide_ctl.operation = vim.vm.device.VirtualDeviceSpec.Operation.add

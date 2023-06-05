@@ -1419,6 +1419,62 @@ class PyVmomiHelper(PyVmomi):
                 self.change_detected = True
                 self.configspec.firmware = boot_firmware
 
+    def configure_floppy(self, vm_obj):
+        if not self.params.get("floppy", None):
+            return
+
+        # Configure the VM floppy
+        if "type" not in self.params["floppy"] or self.params["floppy"]["type"] not in ["none", "client", "flp"]:
+            self.module.fail_json(msg="floppy.type is mandatory")
+        if self.params["floppy"]["type"] == "flp" and ("flp_path" not in self.params["floppy"] or not self.params["floppy"]["flp_path"]):
+            self.module.fail_json(msg="floppy.flp_path is mandatory in case floppy.type is flp")
+
+        if vm_obj and vm_obj.config.template:
+            self.module.fail_json(msg="Changing floppy settings on a template is not supported")
+
+        floppy_spec = None
+        floppy_device = None
+        floppy_devices = self.get_vm_floppy_devices(vm=vm_obj)
+        if floppy_devices:
+            floppy_device = floppy_devices[0]
+        floppy_type = self.params["floppy"]["type"]
+        flp_path = self.params["floppy"].get("flp_path", None)
+        if floppy_device is None:
+            # Creating new floppy
+            sio_device = None
+            sio_devices = self.get_vm_sio_devices(vm=vm_obj)
+            if sio_devices:
+                sio_device = sio_devices[0]
+            if sio_device is None:
+                # Creating new SIO device
+                sio_device = self.device_helper.create_sio_controller()
+                self.change_detected = True
+                self.configspec.deviceChange.append(sio_device)
+
+            floppy_spec = self.device_helper.create_floppy(sio_ctl=sio_device, floppy_type=floppy_type, flp_path=flp_path)
+            if vm_obj and vm_obj.runtime.powerState == vim.VirtualMachinePowerState.poweredOn:
+                floppy_spec.device.connectable.connected = (floppy_type != "none")
+
+        elif not self.device_helper.is_equal_floppy(vm_obj=vm_obj, floppy_device=floppy_device, floppy_type=floppy_type, flp_path=flp_path):
+            # Updating an existing floppy
+            if floppy_type in ["client", "none"]:
+                floppy_device.backing = vim.vm.device.VirtualFloppy.RemoteDeviceBackingInfo()
+            elif floppy_type == "flp":
+                floppy_device.backing = vim.vm.device.VirtualFloppy.ImageBackingInfo(fileName=flp_path)
+            floppy_device.connectable = vim.vm.device.VirtualDevice.ConnectInfo()
+            floppy_device.connectable.allowGuestControl = True
+            floppy_device.connectable.startConnected = (floppy_type != "none")
+            if vm_obj and vm_obj.runtime.powerState == vim.VirtualMachinePowerState.poweredOn:
+                floppy_device.connectable.connected = (floppy_type != "none")
+
+            floppy_spec = vim.vm.device.VirtualDeviceSpec()
+            floppy_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.edit
+            floppy_spec.device = floppy_device
+
+        if floppy_spec:
+            self.change_detected = True
+            self.configspec.deviceChange.append(floppy_spec)
+
     def sanitize_cdrom_params(self):
         cdrom_specs = []
         expected_cdrom_spec = self.params.get('cdrom')
@@ -1717,6 +1773,12 @@ class PyVmomiHelper(PyVmomi):
                 device_list.append(device)
 
         return device_list
+
+    def get_vm_sio_devices(self, vm=None):
+        return self.get_device_by_type(vm=vm, type=vim.vm.device.VirtualSIOController)
+
+    def get_vm_floppy_devices(self, vm=None):
+        return self.get_device_by_type(vm=vm, type=vim.vm.device.VirtualFloppy)
 
     def get_vm_cdrom_devices(self, vm=None):
         return self.get_device_by_type(vm=vm, type=vim.vm.device.VirtualCdrom)
@@ -3166,6 +3228,7 @@ class PyVmomiHelper(PyVmomi):
         self.configure_hardware_params(vm_obj=self.current_vm_obj)
         self.configure_disks(vm_obj=self.current_vm_obj)
         self.configure_network(vm_obj=self.current_vm_obj)
+        self.configure_floppy(vm_obj=self.current_vm_obj)
         self.configure_cdrom(vm_obj=self.current_vm_obj)
         self.configure_nvdimm(vm_obj=self.current_vm_obj)
         self.customize_advanced_settings(vm_obj=self.current_vm_obj, config_spec=self.configspec)
@@ -3418,6 +3481,7 @@ def main():
                 size_mb=dict(type='int', default=1024),
             )
         ),
+        floppy=dict(type='dict', default={}),
         cdrom=dict(type='raw', default=[]),
         hardware=dict(
             type='dict',
